@@ -14,21 +14,26 @@ import os
 # Constants
 IMAGE_SIZE = 200
 CROP_SIZE = 50
+NUM_EPOCHS = 50
 TRAIN_NORMAL_DIR = './chest_xray/train/NORMAL'
 TRAIN_PNEUMONIA_DIR = './chest_xray/train/PNEUMONIA'
-TEST_NORMAL_DIR = './chest_xray/test/NORMAL'
-TEST_PNEUMONIA_DIR = './chest_xray/test/PNEUMONIA'
+TEST_NORMAL_DIR = './chest_xray/val/NORMAL'
+TEST_PNEUMONIA_DIR = './chest_xray/val/PNEUMONIA'
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
         super().__init__()
-        self.hidden = nn.Linear(IMAGE_SIZE**2, 200)
+        self.hidden1 = nn.Linear(IMAGE_SIZE**2, 4000)
         self.sigmoid = nn.Sigmoid()
+        self.hidden2 = nn.Linear(4000, 200)
+        self.relu = nn.ReLU()
         self.output = nn.Linear(200, 2)
 
     def forward(self, x):
-        x = self.hidden(x)
+        x = self.hidden1(x)
         x = self.sigmoid(x)
+        x = self.hidden2(x)
+        x = self.relu(x)
         x = self.output(x)
         return x
 
@@ -119,7 +124,7 @@ def decisionTreeClassifier(xTrain, yTrain):
 
 def randomForestClassifier(xTrain, yTrain):
     xTrainFlat = flattenComponents(xTrain)
-    randFor = RandomForestClassifier()
+    randFor = RandomForestClassifier(criterion='gini', n_estimators=50)
     randFor.fit(xTrainFlat, yTrain)
     return randFor
 
@@ -141,11 +146,11 @@ def neuralNetworkTorch(xTrain, yTrain):
     nnet = NeuralNetwork()
     loss_function = nn.CrossEntropyLoss()
     #loss_function = nn.NLLLoss()
-    optimizer = optim.SGD(nnet.parameters(), lr=0.003)
+    optimizer = optim.SGD(nnet.parameters(), lr=0.01)
 
-    train_loss, valid_loss = [], []
-    for epoch in range(100):
-        nnet.train()
+    train_loss = []
+    nnet.train()
+    for epoch in range(NUM_EPOCHS):
         optimizer.zero_grad()
         output = nnet(xTrainTensor) # forward propogation
         loss = loss_function(output, yTrainTensor) # loss calculation
@@ -190,9 +195,9 @@ def main():
     # reportAccuracy(prediction, yTest)
 
     # ------ RandomForestClassifier -----
-    randFor = randomForestClassifier(xTrain, yTrain)
-    prediction = randFor.predict(flattenComponents(xTest))
-    reportAccuracy(prediction, yTest)
+    # randFor = randomForestClassifier(xTrain, yTrain)
+    # prediction = randFor.predict(flattenComponents(xTest))
+    # reportAccuracy(prediction, yTest)
 
     # ------ SupportVectorClassifier -----
     # svc = supportVectorClassifier(xTrain, yTrain)
@@ -205,12 +210,12 @@ def main():
     # reportAccuracy(prediction, yTest)
 
     # ------ NeuralNetworkTorch -----
-    # nnet = neuralNetworkTorch(xTrain, yTrain)
-    # nnet.eval()
-    # output = nnet(from_numpy(flattenComponents(xTest)).type(FloatTensor))
-    # prediction_tensor = torchmax(output, 1)[1]
-    # prediction = np.squeeze(prediction_tensor.numpy())
-    # reportAccuracy(prediction, yTest)
+    nnet = neuralNetworkTorch(xTrain, yTrain)
+    nnet.eval()
+    output = nnet(from_numpy(flattenComponents(xTest)).type(FloatTensor))
+    prediction_tensor = torchmax(output, 1)[1]
+    prediction = np.squeeze(prediction_tensor.numpy())
+    reportAccuracy(prediction, yTest)
 
 if __name__ == '__main__':
     main()
