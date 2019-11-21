@@ -7,7 +7,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
-from torch import nn, optim, tensor, from_numpy, FloatTensor, max as torchmax
+from torch import nn, optim, tensor, from_numpy, FloatTensor, device, cuda, max as torchmax
 import cv2
 import os
 
@@ -19,6 +19,7 @@ TRAIN_NORMAL_DIR = './chest_xray/train/NORMAL'
 TRAIN_PNEUMONIA_DIR = './chest_xray/train/PNEUMONIA'
 TEST_NORMAL_DIR = './chest_xray/val/NORMAL'
 TEST_PNEUMONIA_DIR = './chest_xray/val/PNEUMONIA'
+torchDevice = device('cuda' if cuda.is_available() else 'cpu')
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
@@ -141,9 +142,9 @@ def neuralNetworkSK(xTrain, yTrain):
     return nn
 
 def neuralNetworkTorch(xTrain, yTrain):
-    xTrainTensor = from_numpy(flattenComponents(xTrain)).type(FloatTensor)
-    yTrainTensor = from_numpy(yTrain)
-    nnet = NeuralNetwork()
+    xTrainTensor = from_numpy(flattenComponents(xTrain)).type(FloatTensor).to(torchDevice)
+    yTrainTensor = from_numpy(yTrain).to(torchDevice)
+    nnet = NeuralNetwork().to(torchDevice)
     loss_function = nn.CrossEntropyLoss()
     #loss_function = nn.NLLLoss()
     optimizer = optim.SGD(nnet.parameters(), lr=0.01)
