@@ -14,7 +14,7 @@ import os
 # Constants
 IMAGE_SIZE = 200
 CROP_SIZE = 50
-NUM_EPOCHS = 50
+NUM_EPOCHS = 10
 TRAIN_NORMAL_DIR = './chest_xray/train/NORMAL'
 TRAIN_PNEUMONIA_DIR = './chest_xray/train/PNEUMONIA'
 TEST_NORMAL_DIR = './chest_xray/val/NORMAL'
@@ -25,14 +25,13 @@ class NeuralNetwork(nn.Module):
     def __init__(self):
         super().__init__()
         self.hidden1 = nn.Linear(IMAGE_SIZE**2, 4000)
-        self.sigmoid = nn.Sigmoid()
         self.hidden2 = nn.Linear(4000, 200)
         self.relu = nn.ReLU()
         self.output = nn.Linear(200, 2)
 
     def forward(self, x):
         x = self.hidden1(x)
-        x = self.sigmoid(x)
+        x = self.relu(x)
         x = self.hidden2(x)
         x = self.relu(x)
         x = self.output(x)
@@ -154,6 +153,11 @@ def neuralNetworkTorch(xTrain, yTrain):
     for epoch in range(NUM_EPOCHS):
         optimizer.zero_grad()
         output = nnet(xTrainTensor) # forward propogation
+
+        prediction_tensor = torchmax(output, 1)[1]
+        prediction = np.squeeze(prediction_tensor.cpu().numpy())
+        print(prediction)
+
         loss = loss_function(output, yTrainTensor) # loss calculation
         loss.backward() # backward propagation
         optimizer.step() # weight optimization
