@@ -8,6 +8,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from torch import nn, optim, tensor, from_numpy, FloatTensor, device, cuda, max as torchmax
+import torch.nn.functional as F
 import cv2
 import os
 
@@ -35,7 +36,7 @@ class NeuralNetwork(nn.Module):
         x = self.hidden2(x)
         x = self.relu(x)
         x = self.output(x)
-        return x
+        return F.softmax(x, dim =1)
 
 # Returns np array of image matricies and corresponding classifications
 def processImageData(dir, crop):
@@ -152,12 +153,7 @@ def neuralNetworkTorch(xTrain, yTrain):
     nnet.train()
     for epoch in range(NUM_EPOCHS):
         optimizer.zero_grad()
-        output = nnet(xTrainTensor) # forward propogation
-
-        prediction_tensor = torchmax(output, 1)[1]
-        prediction = np.squeeze(prediction_tensor.cpu().numpy())
-        print(prediction)
-
+        output = nnet.forward(xTrainTensor) # forward propogation
         loss = loss_function(output, yTrainTensor) # loss calculation
         loss.backward() # backward propagation
         optimizer.step() # weight optimization
@@ -217,7 +213,7 @@ def main():
     # ------ NeuralNetworkTorch -----
     nnet = neuralNetworkTorch(xTrain, yTrain)
     nnet.eval()
-    output = nnet(from_numpy(flattenComponents(xTest)).type(FloatTensor).to(torchDevice))
+    output = nnet.forward(from_numpy(flattenComponents(xTest)).type(FloatTensor).to(torchDevice))
     prediction_tensor = torchmax(output, 1)[1]
     prediction = np.squeeze(prediction_tensor.cpu().numpy())
     print(prediction)
