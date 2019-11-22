@@ -36,7 +36,7 @@ class NeuralNetwork(nn.Module):
         x = self.hidden2(x)
         x = self.relu(x)
         x = self.output(x)
-        return F.softmax(x, dim =1)
+        return F.softmax(x, dim=1)
 
 # Returns np array of image matricies and corresponding classifications
 def processImageData(dir, crop):
@@ -46,6 +46,7 @@ def processImageData(dir, crop):
     imagePaths = os.listdir(dir)
     length = len(imagePaths)
     for i, imagePath in enumerate(imagePaths):
+        if i == 10: break
         if imagePath[0] == '.': continue
         img = cv2.imread(os.path.join(dir, imagePath), cv2.IMREAD_GRAYSCALE)
         if not crop:
@@ -164,7 +165,7 @@ def neuralNetworkTorch(xTrain, yTrain):
         # loss = loss_function(output, yTrainTensor)
         # valid_loss.append(loss.item())
         # print("Epoch:", epoch+1, "Training Loss: ", np.mean(train_loss), "Validation Loss: ", np.mean(valid_loss))
-        print("Epoch:", epoch+1, "Training Loss: ", np.mean(train_loss))
+        print("Epoch:", epoch+1, "Training Loss: ", loss.item())
 
     return nnet
 
@@ -213,7 +214,8 @@ def main():
     # ------ NeuralNetworkTorch -----
     nnet = neuralNetworkTorch(xTrain, yTrain)
     nnet.eval()
-    output = nnet.forward(from_numpy(flattenComponents(xTest)).type(FloatTensor).to(torchDevice))
+    xTestTensor = from_numpy(flattenComponents(xTest)).type(FloatTensor).to(torchDevice)
+    output = nnet(xTestTensor)
     prediction_tensor = torchmax(output, 1)[1]
     prediction = np.squeeze(prediction_tensor.cpu().numpy())
     print(prediction)
