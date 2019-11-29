@@ -15,7 +15,7 @@ import os
 # Constants
 IMAGE_SIZE = 200
 CROP_SIZE = 50
-NUM_EPOCHS = 10
+NUM_EPOCHS = 50
 TRAIN_NORMAL_DIR = './chest_xray/train/NORMAL'
 TRAIN_PNEUMONIA_DIR = './chest_xray/train/PNEUMONIA'
 TEST_NORMAL_DIR = './chest_xray/val/NORMAL'
@@ -24,29 +24,35 @@ torchDevice = device('cuda' if cuda.is_available() else 'cpu')
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
-        super().__init__()
+        super(NeuralNetwork, self).__init__()
         self.hidden1 = nn.Linear(IMAGE_SIZE**2, 4000)
-        self.hidden2 = nn.Linear(4000, 200)
+        nn.init.xavier_uniform_(self.hidden1.weight)
+        # self.hidden2 = nn.Linear(4000, 200)
+        # nn.init.xavier_uniform_(self.hidden2.weight)
+        self.output = nn.Linear(4000, 2)
+        nn.init.xavier_uniform_(self.output.weight)
+
         self.relu = nn.ReLU()
-        self.output = nn.Linear(200, 2)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         x = self.hidden1(x)
         x = self.relu(x)
-        x = self.hidden2(x)
-        x = self.relu(x)
+        # x = self.hidden2(x)
+        # x = self.relu(x)
         x = self.output(x)
-        return F.softmax(x, dim=1)
+        x = F.softmax(x, dim=1)
+        return x
 
 # Returns np array of image matricies and corresponding classifications
-def processImageData(dir, crop):
+def processImageData(dir, crop, normalize):
     basename = os.path.basename(dir)
     pneumonia = 1 if basename == 'PNEUMONIA' else 0
     images, presence = [], []
     imagePaths = os.listdir(dir)
     length = len(imagePaths)
     for i, imagePath in enumerate(imagePaths):
-        if i == 10: break
+        if pneumonia == 1 and i == 2000: break
         if imagePath[0] == '.': continue
         img = cv2.imread(os.path.join(dir, imagePath), cv2.IMREAD_GRAYSCALE)
         if not crop:
@@ -54,6 +60,8 @@ def processImageData(dir, crop):
         else:
             img = cv2.resize(img, (IMAGE_SIZE + 2*CROP_SIZE, IMAGE_SIZE + 2*CROP_SIZE))
             img = img[CROP_SIZE:IMAGE_SIZE+CROP_SIZE, CROP_SIZE:IMAGE_SIZE+CROP_SIZE]
+        if normalize:
+            img = cv2.normalize(img, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
         images.append(np.asarray(img))
         presence.append(pneumonia)
         print(Fore.GREEN + "Added image " + str(i+1) + " out of " + str(length))
@@ -61,9 +69,9 @@ def processImageData(dir, crop):
     return np.asarray(images), np.asarray(presence)
 
 # Returns a concatenated list of image matricies  with classifications
-def getInputOutputData(normalDir, pneumoniaDir, crop=False):
-    normalX, normalY = processImageData(normalDir, crop)
-    pneumoniaX, pneumoniaY = processImageData(pneumoniaDir, crop)
+def getInputOutputData(normalDir, pneumoniaDir, crop, normalize):
+    normalX, normalY = processImageData(normalDir, crop, normalize)
+    pneumoniaX, pneumoniaY = processImageData(pneumoniaDir, crop, normalize)
     xTrain = np.concatenate((normalX, pneumoniaX))
     yTrain = np.concatenate((normalY, pneumoniaY))
     return xTrain, yTrain
@@ -148,17 +156,15 @@ def neuralNetworkTorch(xTrain, yTrain):
     nnet = NeuralNetwork().to(torchDevice)
     loss_function = nn.CrossEntropyLoss()
     #loss_function = nn.NLLLoss()
-    optimizer = optim.SGD(nnet.parameters(), lr=0.01)
+    optimizer = optim.SGD(nnet.parameters(), lr=0.001)
 
-    train_loss = []
     nnet.train()
     for epoch in range(NUM_EPOCHS):
-        optimizer.zero_grad()
-        output = nnet.forward(xTrainTensor) # forward propogation
+        output = nnet(xTrainTensor) # forward propogation
         loss = loss_function(output, yTrainTensor) # loss calculation
+        optimizer.zero_grad()
         loss.backward() # backward propagation
         optimizer.step() # weight optimization
-        train_loss.append(loss.item())
 
         # nnet.eval()
         # output = nnet(xTrainTensor)
@@ -171,8 +177,8 @@ def neuralNetworkTorch(xTrain, yTrain):
 
 def main():
     # Gather train and test data
-    xTrain, yTrain = getInputOutputData(TRAIN_NORMAL_DIR, TRAIN_PNEUMONIA_DIR, crop=False)
-    xTest, yTest = getInputOutputData(TEST_NORMAL_DIR, TEST_PNEUMONIA_DIR, crop=False)
+    xTrain, yTrain = getInputOutputData(TRAIN_NORMAL_DIR, TRAIN_PNEUMONIA_DIR, crop=False, normalize=True)
+    xTest, yTest = getInputOutputData(TEST_NORMAL_DIR, TEST_PNEUMONIA_DIR, crop=False, normalize=True)
     print("Training model...")
 
     # ------ LinearRegression ------
@@ -218,8 +224,9 @@ def main():
     output = nnet(xTestTensor)
     prediction_tensor = torchmax(output, 1)[1]
     prediction = np.squeeze(prediction_tensor.cpu().numpy())
-    print(prediction)
     reportAccuracy(prediction, yTest)
+    print(prediction)
+    print(yTest)
 
 if __name__ == '__main__':
     main()
