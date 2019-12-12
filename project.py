@@ -1,6 +1,5 @@
 from colorama import Fore, Back, Style
 import numpy as np
-#import tensorflow as tf
 from sklearn.linear_model import LinearRegression, SGDClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.tree import DecisionTreeClassifier
@@ -16,10 +15,13 @@ import os
 IMAGE_SIZE = 200
 CROP_SIZE = 50
 NUM_EPOCHS = 50
+BATCH_SIZE = 32
 TRAIN_NORMAL_DIR = './chest_xray/train/NORMAL'
 TRAIN_PNEUMONIA_DIR = './chest_xray/train/PNEUMONIA'
 TEST_NORMAL_DIR = './chest_xray/val/NORMAL'
 TEST_PNEUMONIA_DIR = './chest_xray/val/PNEUMONIA'
+
+# GPU availability
 torchDevice = device('cuda' if cuda.is_available() else 'cpu')
 
 class NeuralNetwork(nn.Module):
@@ -45,14 +47,13 @@ class NeuralNetwork(nn.Module):
         return x
 
 # Returns np array of image matricies and corresponding classifications
-def processImageData(dir, crop, normalize):
+def processImageData(dir, crop, normalize, canny):
     basename = os.path.basename(dir)
     pneumonia = 1 if basename == 'PNEUMONIA' else 0
     images, presence = [], []
     imagePaths = os.listdir(dir)
     length = len(imagePaths)
     for i, imagePath in enumerate(imagePaths):
-        if pneumonia == 1 and i == 2000: break
         if imagePath[0] == '.': continue
         img = cv2.imread(os.path.join(dir, imagePath), cv2.IMREAD_GRAYSCALE)
         if not crop:
@@ -62,6 +63,8 @@ def processImageData(dir, crop, normalize):
             img = img[CROP_SIZE:IMAGE_SIZE+CROP_SIZE, CROP_SIZE:IMAGE_SIZE+CROP_SIZE]
         if normalize:
             img = cv2.normalize(img, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+        if canny:
+            img = cv2.Canny(img, 150, 250)
         images.append(np.asarray(img))
         presence.append(pneumonia)
         print(Fore.GREEN + "Added image " + str(i+1) + " out of " + str(length))
@@ -69,9 +72,9 @@ def processImageData(dir, crop, normalize):
     return np.asarray(images), np.asarray(presence)
 
 # Returns a concatenated list of image matricies  with classifications
-def getInputOutputData(normalDir, pneumoniaDir, crop, normalize):
-    normalX, normalY = processImageData(normalDir, crop, normalize)
-    pneumoniaX, pneumoniaY = processImageData(pneumoniaDir, crop, normalize)
+def getInputOutputData(normalDir, pneumoniaDir, crop, normalize, canny):
+    normalX, normalY = processImageData(normalDir, crop, normalize, canny)
+    pneumoniaX, pneumoniaY = processImageData(pneumoniaDir, crop, normalize, canny)
     xTrain = np.concatenate((normalX, pneumoniaX))
     yTrain = np.concatenate((normalY, pneumoniaY))
     return xTrain, yTrain
@@ -104,6 +107,12 @@ def reportAccuracy(prediction, actual):
     recall = tp / (tp + fn)
 
     print("Training completed.")
+    print("")
+    print("Number of true positives: " + str(tp))
+    print("Number of true negatives: " + str(tn))
+    print("Number of false positives: " + str(fp))
+    print("Number of false negative: " + str(fn))
+    print("")
     print("The accuracy of this model is " + str(round(accuracy*100, 3)) + " %")
     print("The precision of this model is " + str(round(precision*100, 3)) + " %")
     print("The recall of this model is " + str(round(recall*100, 3)) + " %")
@@ -114,11 +123,11 @@ def linearRegression(xTrain, yTrain):
     linReg.fit(xTrainFlat, yTrain)
     return linReg
 
-def logisticRegression(xTrain, yTrain):
+def gradientDescentClassifier(xTrain, yTrain):
     xTrainFlat = flattenComponents(xTrain)
-    logReg = SGDClassifier(loss='log', learning_rate='optimal', eta0=0.01)
-    logReg.fit(xTrainFlat, yTrain)
-    return logReg
+    sgdclas = SGDClassifier(loss='log')
+    sgdclas.fit(xTrainFlat, yTrain)
+    return sgdclas
 
 def naiveBayes(xTrain, yTrain):
     xTrainFlat = flattenComponents(xTrain)
@@ -151,34 +160,39 @@ def neuralNetworkSK(xTrain, yTrain):
     return nn
 
 def neuralNetworkTorch(xTrain, yTrain):
-    xTrainTensor = from_numpy(flattenComponents(xTrain)).type(FloatTensor).to(torchDevice)
-    yTrainTensor = from_numpy(yTrain).to(torchDevice)
+    length = len(yTrain)
+    xTrainTensors, yTrainTensors = np.array_split(xTrain, length//BATCH_SIZE), np.array_split(yTrain, length//BATCH_SIZE)
+    for i in range(len(yTrainTensors)):
+        xTrainTensors[i] = from_numpy(flattenComponents(xTrainTensors[i])).type(FloatTensor).to(torchDevice)
+        yTrainTensors[i] = from_numpy(yTrainTensors[i]).to(torchDevice)
     nnet = NeuralNetwork().to(torchDevice)
     loss_function = nn.CrossEntropyLoss()
     #loss_function = nn.NLLLoss()
-    optimizer = optim.SGD(nnet.parameters(), lr=0.001)
+    optimizer = optim.SGD(nnet.parameters(), lr=0.0001)
 
     nnet.train()
     for epoch in range(NUM_EPOCHS):
-        output = nnet(xTrainTensor) # forward propogation
-        loss = loss_function(output, yTrainTensor) # loss calculation
-        optimizer.zero_grad()
-        loss.backward() # backward propagation
-        optimizer.step() # weight optimization
+        for xTrainTensor, yTrainTensor in zip(xTrainTensors, yTrainTensors):
+            output = nnet(xTrainTensor) # forward propogation
+            loss = loss_function(output, yTrainTensor) # loss calculation
+            optimizer.zero_grad()
+            loss.backward() # backward propagation
+            optimizer.step() # weight optimization
 
-        # nnet.eval()
-        # output = nnet(xTrainTensor)
-        # loss = loss_function(output, yTrainTensor)
-        # valid_loss.append(loss.item())
-        # print("Epoch:", epoch+1, "Training Loss: ", np.mean(train_loss), "Validation Loss: ", np.mean(valid_loss))
         print("Epoch:", epoch+1, "Training Loss: ", loss.item())
 
     return nnet
 
 def main():
     # Gather train and test data
-    xTrain, yTrain = getInputOutputData(TRAIN_NORMAL_DIR, TRAIN_PNEUMONIA_DIR, crop=False, normalize=True)
-    xTest, yTest = getInputOutputData(TEST_NORMAL_DIR, TEST_PNEUMONIA_DIR, crop=False, normalize=True)
+    xTrain, yTrain = getInputOutputData(TRAIN_NORMAL_DIR, TRAIN_PNEUMONIA_DIR, crop=False, normalize=False, canny=False)
+
+    # Shuffle training data
+    indices = np.arange(0, len(xTrain))
+    np.random.shuffle(indices)
+    xTrain, yTrain = xTrain[indices], yTrain[indices]
+
+    xTest, yTest = getInputOutputData(TEST_NORMAL_DIR, TEST_PNEUMONIA_DIR, crop=False, normalize=False, canny=False)
     print("Training model...")
 
     # ------ LinearRegression ------
@@ -187,9 +201,14 @@ def main():
     # predClassifiers = np.asarray([1 if pred >= 0.5 else 0 for pred in prediction])
     # reportAccuracy(predClassifiers, yTest)
 
-    # ------ LogisticRegression ------
-    # logReg = logisticRegression(xTrain, yTrain)
-    # prediction = logReg.predict(flattenComponents(xTest))
+    # ------ SGDClassifier ------
+    # sgdclas = gradientDescentClassifier(xTrain, yTrain)
+    # weights = sgdclas.coef_
+    # weights = np.reshape(weights, (IMAGE_SIZE, IMAGE_SIZE))
+    # weights = np.add(weights, np.min(weights))
+    # weights = cv2.normalize(weights, None, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+    # showImage(weights)
+    # prediction = sgdclas.predict(flattenComponents(xTest))
     # reportAccuracy(prediction, yTest)
 
     # ------ NaiveBayes ------
@@ -203,9 +222,9 @@ def main():
     # reportAccuracy(prediction, yTest)
 
     # ------ RandomForestClassifier -----
-    # randFor = randomForestClassifier(xTrain, yTrain)
-    # prediction = randFor.predict(flattenComponents(xTest))
-    # reportAccuracy(prediction, yTest)
+    randFor = randomForestClassifier(xTrain, yTrain)
+    prediction = randFor.predict(flattenComponents(xTest))
+    reportAccuracy(prediction, yTest)
 
     # ------ SupportVectorClassifier -----
     # svc = supportVectorClassifier(xTrain, yTrain)
@@ -218,15 +237,13 @@ def main():
     # reportAccuracy(prediction, yTest)
 
     # ------ NeuralNetworkTorch -----
-    nnet = neuralNetworkTorch(xTrain, yTrain)
-    nnet.eval()
-    xTestTensor = from_numpy(flattenComponents(xTest)).type(FloatTensor).to(torchDevice)
-    output = nnet(xTestTensor)
-    prediction_tensor = torchmax(output, 1)[1]
-    prediction = np.squeeze(prediction_tensor.cpu().numpy())
-    reportAccuracy(prediction, yTest)
-    print(prediction)
-    print(yTest)
+    # nnet = neuralNetworkTorch(xTrain, yTrain)
+    # nnet.eval()
+    # xTestTensor = from_numpy(flattenComponents(xTest)).type(FloatTensor).to(torchDevice)
+    # output = nnet(xTestTensor)
+    # prediction_tensor = torchmax(output, 1)[1]
+    # prediction = np.squeeze(prediction_tensor.cpu().numpy())
+    # reportAccuracy(prediction, yTest)
 
 if __name__ == '__main__':
     main()
