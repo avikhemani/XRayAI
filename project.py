@@ -46,7 +46,7 @@ class NeuralNetwork(nn.Module):
         x = F.softmax(x, dim=1)
         return x
 
-class ConvNetwork():
+class ConvNetwork(nn.Module):
     def __init__(self):
         super(ConvNetwork, self).__init__()
         self.layer1 = nn.Sequential(
@@ -62,13 +62,13 @@ class ConvNetwork():
         self.fc2 = nn.Linear(1000, 2)
 
     def forward(self, x):
-        out = self.layer1(x)
-        out = self.layer2(out)
-        out = out.reshape(out.size(0), -1)
-        out = self.drop_out(out)
-        out = self.fc1(out)
-        out = self.fc2(out)
-        return out
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = x.reshape(x.size(0), -1)
+        x = self.drop_out(x)
+        x = self.fc1(x)
+        x = self.fc2(x)
+        return x
 
 # Returns np array of image matricies and corresponding classifications
 def processImageData(dir, crop, normalize, canny):
@@ -209,7 +209,7 @@ def neuralNetworkTorch(xTrain, yTrain):
 
 def convNetworkTorch(xTrain, yTrain):
     length = len(yTrain)
-    xTrainTensors, yTrainTensors = np.array_split(xTrain, length//BATCH_SIZE), np.array_split(yTrain, length//BATCH_SIZE)
+    xTrainTensors, yTrainTensors = np.array_split(np.expand_dims(xTrain, axis=3), length//BATCH_SIZE), np.array_split(yTrain, length//BATCH_SIZE)
     for i in range(len(yTrainTensors)):
         xTrainTensors[i] = from_numpy(xTrainTensors[i]).type(FloatTensor).to(torchDevice)
         yTrainTensors[i] = from_numpy(yTrainTensors[i]).to(torchDevice)
@@ -221,7 +221,7 @@ def convNetworkTorch(xTrain, yTrain):
     convnet.train()
     for epoch in range(NUM_EPOCHS):
         for xTrainTensor, yTrainTensor in zip(xTrainTensors, yTrainTensors):
-            output = nnet(xTrainTensor) # forward propogation
+            output = convnet(xTrainTensor) # forward propogation
             loss = loss_function(output, yTrainTensor) # loss calculation
             optimizer.zero_grad()
             loss.backward() # backward propagation
@@ -294,9 +294,9 @@ def main():
     # reportAccuracy(prediction, yTest)
 
     # ------ ConvNetworkTorch -----
-    convnet = neuralNetworkTorch(xTrain, yTrain)
+    convnet = convNetworkTorch(xTrain, yTrain)
     convnet.eval()
-    xTestTensor = from_numpy(flattenComponents(xTest)).type(FloatTensor).to(torchDevice)
+    xTestTensor = from_numpy(np.expand_dims(xTest, axis=1)).type(FloatTensor).to(torchDevice)
     output = convnet(xTestTensor)
     prediction_tensor = torchmax(output, 1)[1]
     prediction = np.squeeze(prediction_tensor.cpu().numpy())
