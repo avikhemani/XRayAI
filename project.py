@@ -14,7 +14,7 @@ import os
 # Constants
 IMAGE_SIZE = 200
 CROP_SIZE = 50
-NUM_EPOCHS = 10
+NUM_EPOCHS = 25
 BATCH_SIZE = 32
 TRAIN_NORMAL_DIR = './chest_xray/train/NORMAL'
 TRAIN_PNEUMONIA_DIR = './chest_xray/train/PNEUMONIA'
@@ -78,7 +78,6 @@ def processImageData(dir, crop, normalize, canny):
     imagePaths = os.listdir(dir)
     length = len(imagePaths)
     for i, imagePath in enumerate(imagePaths):
-        if i == 60: break
         if imagePath[0] == '.': continue
         img = cv2.imread(os.path.join(dir, imagePath), cv2.IMREAD_GRAYSCALE)
         if not crop:
