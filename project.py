@@ -14,7 +14,7 @@ import os
 # Constants
 IMAGE_SIZE = 200
 CROP_SIZE = 50
-NUM_EPOCHS = 50
+NUM_EPOCHS = 10
 BATCH_SIZE = 32
 TRAIN_NORMAL_DIR = './chest_xray/train/NORMAL'
 TRAIN_PNEUMONIA_DIR = './chest_xray/train/PNEUMONIA'
@@ -46,6 +46,30 @@ class NeuralNetwork(nn.Module):
         x = F.softmax(x, dim=1)
         return x
 
+class ConvNetwork():
+    def __init__(self):
+        super(ConvNetwork, self).__init__()
+        self.layer1 = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size=25, stride=1, padding=0),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2))
+        self.layer2 = nn.Sequential(
+            nn.Conv2d(8, 16, kernel_size=25, stride=1, padding=0),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2))
+        self.drop_out = nn.Dropout()
+        self.fc1 = nn.Linear(32 * 32 * 16, 1000)
+        self.fc2 = nn.Linear(1000, 2)
+
+    def forward(self, x):
+        out = self.layer1(x)
+        out = self.layer2(out)
+        out = out.reshape(out.size(0), -1)
+        out = self.drop_out(out)
+        out = self.fc1(out)
+        out = self.fc2(out)
+        return out
+
 # Returns np array of image matricies and corresponding classifications
 def processImageData(dir, crop, normalize, canny):
     basename = os.path.basename(dir)
@@ -54,6 +78,7 @@ def processImageData(dir, crop, normalize, canny):
     imagePaths = os.listdir(dir)
     length = len(imagePaths)
     for i, imagePath in enumerate(imagePaths):
+        if i == 60: break
         if imagePath[0] == '.': continue
         img = cv2.imread(os.path.join(dir, imagePath), cv2.IMREAD_GRAYSCALE)
         if not crop:
@@ -168,7 +193,7 @@ def neuralNetworkTorch(xTrain, yTrain):
     nnet = NeuralNetwork().to(torchDevice)
     loss_function = nn.CrossEntropyLoss()
     #loss_function = nn.NLLLoss()
-    optimizer = optim.SGD(nnet.parameters(), lr=0.0001)
+    optimizer = optim.SGD(nnet.parameters(), lr=0.001)
 
     nnet.train()
     for epoch in range(NUM_EPOCHS):
@@ -183,16 +208,40 @@ def neuralNetworkTorch(xTrain, yTrain):
 
     return nnet
 
+def convNetworkTorch(xTrain, yTrain):
+    length = len(yTrain)
+    xTrainTensors, yTrainTensors = np.array_split(xTrain, length//BATCH_SIZE), np.array_split(yTrain, length//BATCH_SIZE)
+    for i in range(len(yTrainTensors)):
+        xTrainTensors[i] = from_numpy(xTrainTensors[i]).type(FloatTensor).to(torchDevice)
+        yTrainTensors[i] = from_numpy(yTrainTensors[i]).to(torchDevice)
+    convnet = ConvNetwork().to(torchDevice)
+    loss_function = nn.CrossEntropyLoss()
+    #loss_function = nn.NLLLoss()
+    optimizer = optim.SGD(convnet.parameters(), lr=0.001)
+
+    convnet.train()
+    for epoch in range(NUM_EPOCHS):
+        for xTrainTensor, yTrainTensor in zip(xTrainTensors, yTrainTensors):
+            output = nnet(xTrainTensor) # forward propogation
+            loss = loss_function(output, yTrainTensor) # loss calculation
+            optimizer.zero_grad()
+            loss.backward() # backward propagation
+            optimizer.step() # weight optimization
+
+        print("Epoch:", epoch+1, "Training Loss: ", loss.item())
+
+    return convnet
+
 def main():
     # Gather train and test data
-    xTrain, yTrain = getInputOutputData(TRAIN_NORMAL_DIR, TRAIN_PNEUMONIA_DIR, crop=False, normalize=False, canny=False)
+    xTrain, yTrain = getInputOutputData(TRAIN_NORMAL_DIR, TRAIN_PNEUMONIA_DIR, crop=False, normalize=True, canny=False)
 
     # Shuffle training data
     indices = np.arange(0, len(xTrain))
     np.random.shuffle(indices)
     xTrain, yTrain = xTrain[indices], yTrain[indices]
 
-    xTest, yTest = getInputOutputData(TEST_NORMAL_DIR, TEST_PNEUMONIA_DIR, crop=False, normalize=False, canny=False)
+    xTest, yTest = getInputOutputData(TEST_NORMAL_DIR, TEST_PNEUMONIA_DIR, crop=False, normalize=True, canny=False)
     print("Training model...")
 
     # ------ LinearRegression ------
@@ -222,9 +271,9 @@ def main():
     # reportAccuracy(prediction, yTest)
 
     # ------ RandomForestClassifier -----
-    randFor = randomForestClassifier(xTrain, yTrain)
-    prediction = randFor.predict(flattenComponents(xTest))
-    reportAccuracy(prediction, yTest)
+    # randFor = randomForestClassifier(xTrain, yTrain)
+    # prediction = randFor.predict(flattenComponents(xTest))
+    # reportAccuracy(prediction, yTest)
 
     # ------ SupportVectorClassifier -----
     # svc = supportVectorClassifier(xTrain, yTrain)
@@ -244,6 +293,15 @@ def main():
     # prediction_tensor = torchmax(output, 1)[1]
     # prediction = np.squeeze(prediction_tensor.cpu().numpy())
     # reportAccuracy(prediction, yTest)
+
+    # ------ ConvNetworkTorch -----
+    convnet = neuralNetworkTorch(xTrain, yTrain)
+    convnet.eval()
+    xTestTensor = from_numpy(flattenComponents(xTest)).type(FloatTensor).to(torchDevice)
+    output = convnet(xTestTensor)
+    prediction_tensor = torchmax(output, 1)[1]
+    prediction = np.squeeze(prediction_tensor.cpu().numpy())
+    reportAccuracy(prediction, yTest)
 
 if __name__ == '__main__':
     main()
