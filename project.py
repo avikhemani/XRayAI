@@ -15,11 +15,11 @@ import os
 IMAGE_SIZE = 200
 CROP_SIZE = 50
 NUM_EPOCHS = 25
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 TRAIN_NORMAL_DIR = './chest_xray/train/NORMAL'
 TRAIN_PNEUMONIA_DIR = './chest_xray/train/PNEUMONIA'
-TEST_NORMAL_DIR = './chest_xray/val/NORMAL'
-TEST_PNEUMONIA_DIR = './chest_xray/val/PNEUMONIA'
+TEST_NORMAL_DIR = './chest_xray/test/NORMAL'
+TEST_PNEUMONIA_DIR = './chest_xray/test/PNEUMONIA'
 
 # GPU availability
 torchDevice = device('cuda' if cuda.is_available() else 'cpu')
@@ -27,11 +27,11 @@ torchDevice = device('cuda' if cuda.is_available() else 'cpu')
 class NeuralNetwork(nn.Module):
     def __init__(self):
         super(NeuralNetwork, self).__init__()
-        self.hidden1 = nn.Linear(IMAGE_SIZE**2, 4000)
+        self.hidden1 = nn.Linear(IMAGE_SIZE**2, 2000)
         nn.init.xavier_uniform_(self.hidden1.weight)
         # self.hidden2 = nn.Linear(4000, 200)
         # nn.init.xavier_uniform_(self.hidden2.weight)
-        self.output = nn.Linear(4000, 2)
+        self.output = nn.Linear(2000, 2)
         nn.init.xavier_uniform_(self.output.weight)
 
         self.relu = nn.ReLU()
@@ -50,11 +50,11 @@ class ConvNetwork(nn.Module):
     def __init__(self):
         super(ConvNetwork, self).__init__()
         self.layer1 = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=25, stride=1, padding=0),
+            nn.Conv2d(1, 5, kernel_size=5, stride=1, padding=0),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
         self.layer2 = nn.Sequential(
-            nn.Conv2d(8, 16, kernel_size=25, stride=1, padding=0),
+            nn.Conv2d(5, 10, kernel_size=5, stride=1, padding=0),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2))
         self.drop_out = nn.Dropout()
@@ -192,7 +192,7 @@ def neuralNetworkTorch(xTrain, yTrain):
     nnet = NeuralNetwork().to(torchDevice)
     loss_function = nn.CrossEntropyLoss()
     #loss_function = nn.NLLLoss()
-    optimizer = optim.SGD(nnet.parameters(), lr=0.001)
+    optimizer = optim.SGD(nnet.parameters(), lr=0.001, momentum=0.9)
 
     nnet.train()
     for epoch in range(NUM_EPOCHS):
@@ -209,14 +209,14 @@ def neuralNetworkTorch(xTrain, yTrain):
 
 def convNetworkTorch(xTrain, yTrain):
     length = len(yTrain)
-    xTrainTensors, yTrainTensors = np.array_split(np.expand_dims(xTrain, axis=3), length//BATCH_SIZE), np.array_split(yTrain, length//BATCH_SIZE)
+    xTrainTensors, yTrainTensors = np.array_split(np.expand_dims(xTrain, axis=1), length//BATCH_SIZE), np.array_split(yTrain, length//BATCH_SIZE)
     for i in range(len(yTrainTensors)):
         xTrainTensors[i] = from_numpy(xTrainTensors[i]).type(FloatTensor).to(torchDevice)
         yTrainTensors[i] = from_numpy(yTrainTensors[i]).to(torchDevice)
     convnet = ConvNetwork().to(torchDevice)
     loss_function = nn.CrossEntropyLoss()
     #loss_function = nn.NLLLoss()
-    optimizer = optim.SGD(convnet.parameters(), lr=0.001)
+    optimizer = optim.SGD(convnet.parameters(), lr=0.001, momentum=0.9)
 
     convnet.train()
     for epoch in range(NUM_EPOCHS):
@@ -233,14 +233,14 @@ def convNetworkTorch(xTrain, yTrain):
 
 def main():
     # Gather train and test data
-    xTrain, yTrain = getInputOutputData(TRAIN_NORMAL_DIR, TRAIN_PNEUMONIA_DIR, crop=False, normalize=True, canny=False)
+    xTrain, yTrain = getInputOutputData(TRAIN_NORMAL_DIR, TRAIN_PNEUMONIA_DIR, crop=False, normalize=False, canny=False)
 
     # Shuffle training data
     indices = np.arange(0, len(xTrain))
     np.random.shuffle(indices)
     xTrain, yTrain = xTrain[indices], yTrain[indices]
 
-    xTest, yTest = getInputOutputData(TEST_NORMAL_DIR, TEST_PNEUMONIA_DIR, crop=False, normalize=True, canny=False)
+    xTest, yTest = getInputOutputData(TEST_NORMAL_DIR, TEST_PNEUMONIA_DIR, crop=False, normalize=False, canny=False)
     print("Training model...")
 
     # ------ LinearRegression ------
@@ -294,13 +294,13 @@ def main():
     # reportAccuracy(prediction, yTest)
 
     # ------ ConvNetworkTorch -----
-    convnet = convNetworkTorch(xTrain, yTrain)
-    convnet.eval()
-    xTestTensor = from_numpy(np.expand_dims(xTest, axis=1)).type(FloatTensor).to(torchDevice)
-    output = convnet(xTestTensor)
-    prediction_tensor = torchmax(output, 1)[1]
-    prediction = np.squeeze(prediction_tensor.cpu().numpy())
-    reportAccuracy(prediction, yTest)
+    # convnet = convNetworkTorch(xTrain, yTrain)
+    # convnet.eval()
+    # xTestTensor = from_numpy(np.expand_dims(xTest, axis=1)).type(FloatTensor).to(torchDevice)
+    # output = convnet(xTestTensor)
+    # prediction_tensor = torchmax(output, 1)[1]
+    # prediction = np.squeeze(prediction_tensor.cpu().numpy())
+    # reportAccuracy(prediction, yTest)
 
 if __name__ == '__main__':
     main()
