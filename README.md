@@ -1,4 +1,4 @@
-# CS 221 Project
+# Detecting Pneumonia from Chest X-Rays
 
 The project.py file implements many different machine learning algorithms to detect the presence of pneumonia in chest X-rays.
 The dataset is gathered from Kaggle at the following link: (https://www.kaggle.com/paultimothymooney/chest-xray-pneumonia); 
